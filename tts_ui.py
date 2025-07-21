@@ -1,83 +1,187 @@
 from pathlib import Path
 import functools
 import wave
+import os
+import html
+
 import gradio as gr
 from piper import PiperVoice, SynthesisConfig
-import os
+from phonemizer import phonemize
 
-# ── 1. 表示名 → モデルファイルパス ──
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Voice list  ──  表示名 → { model_path, phonemizer_language }
+# ─────────────────────────────────────────────────────────────────────────────
+# 使いたい音声モデルと、それに対応する phonemizer の言語コード(en-gb / en-us) を
+# セットで管理しておく。
+# これにより「選択した声のアクセントに合わせた IPA だけ」を動的に生成できる。
+# ----------------------------------------------------------------------------
 MODELS = {
     # ── British English : RP / 南部寄り ──
-    "Alan · male · RP · medium":           "~/.local/share/piper-voices/en_GB-alan-medium.onnx",
-    "Cori · female · RP · medium":         "~/.local/share/piper-voices/en_GB-cori-medium.onnx",
-    "Cori · female · RP · high":           "~/.local/share/piper-voices/en_GB-cori-high.onnx",
-    "Semaine · female · RP · medium":      "~/.local/share/piper-voices/en_GB-semaine-medium.onnx",
+    "Alan · male · RP · medium": {
+        "path": "~/.local/share/piper-voices/en_GB-alan-medium.onnx",
+        "language": "en-gb",
+    },
+    "Cori · female · RP · medium": {
+        "path": "~/.local/share/piper-voices/en_GB-cori-medium.onnx",
+        "language": "en-gb",
+    },
+    "Cori · female · RP · high": {
+        "path": "~/.local/share/piper-voices/en_GB-cori-high.onnx",
+        "language": "en-gb",
+    },
+    "Semaine · female · RP · medium": {
+        "path": "~/.local/share/piper-voices/en_GB-semaine-medium.onnx",
+        "language": "en-gb",
+    },
     # ── British English : ロンドン／南部カジュアル ──
-    "Southern · female · London/Estuary · low": "~/.local/share/piper-voices/en_GB-southern_english_female-low.onnx",
+    "Southern · female · London/Estuary · low": {
+        "path": "~/.local/share/piper-voices/en_GB-southern_english_female-low.onnx",
+        "language": "en-gb",
+    },
     # ── British English : 北部・スコットランド・アイルランド ──
-    "Northern · male · North-England · medium": "~/.local/share/piper-voices/en_GB-northern_english_male-medium.onnx",
-    "Alba · male · Scottish · medium":          "~/.local/share/piper-voices/en_GB-alba-medium.onnx",
-    "Jenny · female · Irish · medium":          "~/.local/share/piper-voices/en_GB-jenny_dioco-medium.onnx",
+    "Northern · male · North-England · medium": {
+        "path": "~/.local/share/piper-voices/en_GB-northern_english_male-medium.onnx",
+        "language": "en-gb",
+    },
+    "Alba · male · Scottish · medium": {
+        "path": "~/.local/share/piper-voices/en_GB-alba-medium.onnx",
+        "language": "en-gb",
+    },
+    "Jenny · female · Irish · medium": {
+        "path": "~/.local/share/piper-voices/en_GB-jenny_dioco-medium.onnx",
+        "language": "en-gb",
+    },
     # ── British English : ニュートラル ──
-    "Aru · male · Neutral UK · medium":         "~/.local/share/piper-voices/en_GB-aru-medium.onnx",
-    "VCTK · male · Neutral UK · medium":        "~/.local/share/piper-voices/en_GB-vctk-medium.onnx",
-    # ── 参考 US English ──
-    "Lessac · female · US · medium":            "~/.local/share/piper-voices/en_US-lessac-medium.onnx",
+    "Aru · male · Neutral UK · medium": {
+        "path": "~/.local/share/piper-voices/en_GB-aru-medium.onnx",
+        "language": "en-gb",
+    },
+    "VCTK · male · Neutral UK · medium": {
+        "path": "~/.local/share/piper-voices/en_GB-vctk-medium.onnx",
+        "language": "en-gb",
+    },
+    # ── US English ──
+    "Lessac · female · US · medium": {
+        "path": "~/.local/share/piper-voices/en_US-lessac-medium.onnx",
+        "language": "en-us",
+    },
 }
 
-# ── 2. 音声モデルをキャッシュロード ──
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Piper モデルをキャッシュロード
+# ─────────────────────────────────────────────────────────────────────────────
 @functools.lru_cache(maxsize=len(MODELS))
 def get_voice(model_path: str) -> PiperVoice:
+    """Return a cached PiperVoice instance"""
     return PiperVoice.load(Path(model_path).expanduser())
 
-# ── 3. TTS ──
-def tts(
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. IPA 変換ヘルパー
+# ─────────────────────────────────────────────────────────────────────────────
+def to_ipa(text: str, language: str) -> str:
+    """Return broad IPA transcription for the given text & language."""
+    ipa_raw = phonemize(
+        text,
+        language=language,
+        backend="espeak",
+        with_stress=True,
+        strip=False,
+    )
+    # ɐ → ə など“広い表記”へ寄せ、音節境界の . を除く
+    return ipa_raw.replace("ɐ", "ə").replace(".", "")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. 単語レベル対応表 (Word ↔ IPA)
+# ─────────────────────────────────────────────────────────────────────────────
+def word_ipa_table(text: str, language: str) -> str:
+    """Return HTML table mapping each word to its IPA transcription."""
+    words = text.split()
+    ipas = phonemize(
+        words,
+        language=language,
+        backend="espeak",
+        strip=True,
+        with_stress=True,
+        njobs=1,
+    )
+    rows = [
+        f"<tr><td>{html.escape(w)}</td><td>{html.escape(ipa)}</td></tr>"
+        for w, ipa in zip(words, ipas)
+    ]
+    return "<table>" + "".join(rows) + "</table>"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. TTS + IPA + Table (メインコールバック)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def tts_with_ipa(
     text: str,
     model_label: str,
     volume: float,
     length_scale: float,
     noise_scale: float,
     noise_w_scale: float,
-    normalize_audio: bool
+    normalize_audio: bool,
 ):
+    # ① 選択モデルの情報取得
+    model_info = MODELS[model_label]
+    lang = model_info["language"]
     text = text.replace("\n", " ")
-    voice = get_voice(MODELS[model_label])
 
-    syn_config = SynthesisConfig(
+    # ② Piper で音声生成
+    voice = get_voice(model_info["path"])
+    syn_cfg = SynthesisConfig(
         volume=volume,
         length_scale=length_scale,
         noise_scale=noise_scale,
         noise_w_scale=noise_w_scale,
         normalize_audio=normalize_audio,
     )
-
     wav_path = "output.wav"
     if os.path.exists(wav_path):
         os.remove(wav_path)
     with wave.open(wav_path, "wb") as wf:
-        voice.synthesize_wav(text, wf, syn_config=syn_config)
+        voice.synthesize_wav(text, wf, syn_config=syn_cfg)
 
-    return wav_path
+    # ③ IPA と対応表
+    ipa = to_ipa(text, lang)
+    table_html = word_ipa_table(text, lang)
 
-# ── 4. Gradio UI ──
+    return wav_path, ipa, table_html
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Gradio UI
+# ─────────────────────────────────────────────────────────────────────────────
+
 demo = gr.Interface(
-    fn=tts,
+    fn=tts_with_ipa,
     inputs=[
         gr.Textbox(lines=2, label="Input Text"),
         gr.Dropdown(
             choices=list(MODELS.keys()),
             value=list(MODELS.keys())[0],
-            label="Voice (British English)"
+            label="Voice (accent)",
         ),
         gr.Slider(0.0, 1.0, value=0.5, step=0.05, label="Volume (0–1)"),
-        gr.Slider(0.5, 3.0, value=1.0, step=0.05, label="Length Scale (speed: ↑値=遅い)"),
+        gr.Slider(0.5, 3.0, value=1.0, step=0.05, label="Length Scale (↑ = slower)"),
         gr.Slider(0.0, 2.0, value=1.0, step=0.05, label="Noise Scale (timbre)"),
         gr.Slider(0.0, 2.0, value=1.0, step=0.05, label="Noise w Scale (prosody)"),
         gr.Checkbox(True, label="Normalize Audio"),
     ],
-    outputs=gr.Audio(type="filepath", label="Generated Audio"),
-    title="Piper TTS · British/US Voices",
-    description="Choose a voice and fine-tune synthesis parameters in real time.",
+    outputs=[
+        gr.Audio(type="filepath", label="Generated Audio"),
+        gr.Textbox(label="IPA Transcription"),
+        gr.HTML(label="Word ↔ IPA"),
+    ],
+    title="Piper TTS + IPA Viewer",
+    description=(
+        "Select a voice, enter text, and play the generated speech. "
+        "The IPA transcription (matching the selected accent) and a word‑level table "
+        "are displayed below."
+    ),
 )
 
 if __name__ == "__main__":
