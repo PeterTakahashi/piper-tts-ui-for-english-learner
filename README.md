@@ -14,6 +14,11 @@ No need for a high-spec GPU or paid APIs like OpenAI TTS.
 
 This project is free and open source, so anyone can use it!
 
+[show demo video](./demo.mp4)
+
+![demo](demo.png)
+
+
 ⸻
 
 ## Installation
