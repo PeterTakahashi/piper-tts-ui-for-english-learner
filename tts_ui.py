@@ -69,7 +69,7 @@ MODELS = {
         "path": "./models/en_US-sam-medium.onnx",
         "language": "en-us",
     },
-    "Ryan  · female · US · high": {
+    "Ryan  · male · US · high": {
         "path": "./models/en_US-ryan-high.onnx",
         "language": "en-us",
     },
