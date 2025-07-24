@@ -4,3 +4,4 @@ piper-venv
 .DS_Store
 __pycache__
 output.wav
+models/*

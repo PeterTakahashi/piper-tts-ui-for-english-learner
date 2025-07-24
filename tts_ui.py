@@ -18,53 +18,66 @@ from phonemizer import phonemize
 MODELS = {
     # ── British English : RP / 南部寄り ──
     "Alan · male · RP · medium": {
-        "path": "~/.local/share/piper-voices/en_GB-alan-medium.onnx",
-        "language": "en-gb",
-    },
-    "Cori · female · RP · medium": {
-        "path": "~/.local/share/piper-voices/en_GB-cori-medium.onnx",
+        "path": "./models/en_GB-alan-medium.onnx",
         "language": "en-gb",
     },
     "Cori · female · RP · high": {
-        "path": "~/.local/share/piper-voices/en_GB-cori-high.onnx",
+        "path": "./models/en_GB-cori-high.onnx",
         "language": "en-gb",
     },
     "Semaine · female · RP · medium": {
-        "path": "~/.local/share/piper-voices/en_GB-semaine-medium.onnx",
+        "path": "./models/en_GB-semaine-medium.onnx",
         "language": "en-gb",
     },
     # ── British English : ロンドン／南部カジュアル ──
     "Southern · female · London/Estuary · low": {
-        "path": "~/.local/share/piper-voices/en_GB-southern_english_female-low.onnx",
+        "path": "./models/en_GB-southern_english_female-low.onnx",
         "language": "en-gb",
     },
     # ── British English : 北部・スコットランド・アイルランド ──
     "Northern · male · North-England · medium": {
-        "path": "~/.local/share/piper-voices/en_GB-northern_english_male-medium.onnx",
+        "path": "./models/en_GB-northern_english_male-medium.onnx",
         "language": "en-gb",
     },
     "Alba · male · Scottish · medium": {
-        "path": "~/.local/share/piper-voices/en_GB-alba-medium.onnx",
+        "path": "./models/en_GB-alba-medium.onnx",
         "language": "en-gb",
     },
     "Jenny · female · Irish · medium": {
-        "path": "~/.local/share/piper-voices/en_GB-jenny_dioco-medium.onnx",
+        "path": "./models/en_GB-jenny_dioco-medium.onnx",
         "language": "en-gb",
     },
     # ── British English : ニュートラル ──
     "Aru · male · Neutral UK · medium": {
-        "path": "~/.local/share/piper-voices/en_GB-aru-medium.onnx",
+        "path": "./models/en_GB-aru-medium.onnx",
         "language": "en-gb",
     },
     "VCTK · male · Neutral UK · medium": {
-        "path": "~/.local/share/piper-voices/en_GB-vctk-medium.onnx",
+        "path": "./models/en_GB-vctk-medium.onnx",
         "language": "en-gb",
     },
     # ── US English ──
     "Lessac · female · US · medium": {
-        "path": "~/.local/share/piper-voices/en_US-lessac-medium.onnx",
+        "path": "./models/en_US-lessac-medium.onnx",
         "language": "en-us",
     },
+    "Norman · male · US · medium": {
+        "path": "./models/en_US-norman-medium.onnx",
+        "language": "en-us",
+    },
+    "Sam · male · US · medium": {
+        "path": "./models/en_US-sam-medium.onnx",
+        "language": "en-us",
+    },
+    "Ryan  · female · US · high": {
+        "path": "./models/en_US-ryan-high.onnx",
+        "language": "en-us",
+    },
+}
+
+LANGUAGE_YOUGLISH = {
+    "en-gb": "english/uk",
+    "en-us": "english/us",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -97,6 +110,7 @@ def to_ipa(text: str, language: str) -> str:
 def word_ipa_table(text: str, language: str) -> str:
     """Return HTML table mapping each word to its IPA transcription."""
     words = text.split()
+    words = [w.strip(".,!?;:") for w in words]  # 単語の前後の句読点を除去
     ipas = phonemize(
         words,
         language=language,
@@ -106,7 +120,13 @@ def word_ipa_table(text: str, language: str) -> str:
         njobs=1,
     )
     rows = [
-        f"<tr><td>{html.escape(w)}</td><td>{html.escape(ipa)}</td></tr>"
+        "<tr>"
+        f"<td>{html.escape(w)}</td>"
+        f"<td>{html.escape(ipa)}</td>"
+        f"<td><a target=\"_blank\" href=\"https://youglish.com/pronounce/{html.escape(w)}/{LANGUAGE_YOUGLISH[language]}\">YouGlish</a></td>"
+        f"<td><a target=\"_blank\" href=\"https://www.google.com/search?q=define+{html.escape(w)}\">Google</a></td>"
+        f"<td><a target=\"_blank\" href=\"https://ejje.weblio.jp/content/{html.escape(w)}\">Weblio</a></td>"
+        "</tr>"
         for w, ipa in zip(words, ipas)
     ]
     return "<table>" + "".join(rows) + "</table>"
